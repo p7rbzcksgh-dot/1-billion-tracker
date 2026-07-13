@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090b0c">
+  <meta name="description" content="TCG Machines 1 Billion Cards PhyzBatched monitor">
+  <title>TCG Machines — 1 Billion Monitor</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/client.js" defer></script>
+</head>
+<body>
+  <div class="background" aria-hidden="true"></div>
+
+  <main id="loginScreen" class="login-screen">
+    <section class="login-card" aria-labelledby="loginTitle">
+      <img class="login-logo" src="/tcg-machines-logo.jpeg" alt="TCG Machines">
+      <p class="kicker">Cards PhyzBatched</p>
+      <h1 id="loginTitle">1 Billion Monitor</h1>
+      <p class="login-copy">Enter the shared monitor password.</p>
+      <label class="field-label" for="passwordInput">Password</label>
+      <input id="passwordInput" type="password" autocomplete="current-password" placeholder="Password">
+      <button id="loginButton" class="button button-primary" type="button">Enter Monitor</button>
+      <p id="loginError" class="form-error" role="alert"></p>
+    </section>
+  </main>
+
+  <div id="app" class="app hidden">
+    <header class="topbar">
+      <div class="brand">
+        <img src="/tcg-machines-logo.jpeg" alt="TCG Machines">
+        <div>
+          <p class="kicker">Cards PhyzBatched</p>
+          <h1>1 Billion Monitor</h1>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <span id="connectionBadge" class="status-badge">
+          <span id="statusDot" class="status-dot"></span>
+          <span id="monitorStatus">Starting</span>
+        </span>
+        <button id="logoutButton" class="button button-quiet" type="button">Log out</button>
+      </div>
+    </header>
+
+    <main class="shell">
+      <section class="hero-card" aria-labelledby="counterLabel">
+        <p id="counterLabel" class="hero-label">Live Cards PhyzBatched</p>
+        <div id="counter" class="counter" aria-live="polite">0</div>
+        <div class="progress-track" aria-label="Progress toward one billion cards">
+          <div id="progressFill" class="progress-fill"></div>
+        </div>
+        <div class="progress-row">
+          <strong id="progressPercent">0.0000%</strong>
+          <span><strong id="remaining">1,000,000,000</strong> remaining</span>
+        </div>
+
+        <div class="metrics">
+          <article class="metric">
+            <span>Last reading</span>
+            <strong id="lastReading">Waiting</strong>
+          </article>
+          <article class="metric">
+            <span>Read frequency</span>
+            <strong id="frequency">250 ms</strong>
+          </article>
+          <article class="metric">
+            <span>Email alert</span>
+            <strong id="alertStatus">Armed</strong>
+          </article>
+          <article class="metric">
+            <span>Recipients</span>
+            <strong id="recipientCount">0 ready</strong>
+          </article>
+        </div>
+      </section>
+
+      <section class="content-grid">
+        <article class="panel recipients-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="kicker">Notification list</p>
+              <h2>Email recipients</h2>
+              <p>Add everyone who should receive the one-billion announcement.</p>
+            </div>
+            <button id="testEmail" class="button button-secondary" type="button">Send test email</button>
+          </div>
+
+          <div class="add-row">
+            <label class="sr-only" for="newEmail">Email address</label>
+            <input id="newEmail" type="email" autocomplete="email" placeholder="name@tcgmachines.com">
+            <button id="addEmail" class="button button-primary" type="button">Add email</button>
+          </div>
+
+          <div id="recipientList" class="recipient-list" aria-live="polite"></div>
+        </article>
+
+        <aside class="side-stack">
+          <article class="panel status-panel">
+            <div class="panel-heading compact">
+              <div>
+                <p class="kicker">Monitor health</p>
+                <h2>Live status</h2>
+              </div>
+              <button id="checkNow" class="button button-secondary" type="button">Check now</button>
+            </div>
+            <dl class="status-list">
+              <div><dt>Counter source</dt><dd id="source">Waiting for first reading</dd></div>
+              <div><dt>Last change</dt><dd id="lastChanged">Waiting</dd></div>
+              <div><dt>Checks today</dt><dd id="checksToday">0</dd></div>
+              <div><dt>SMTP</dt><dd id="smtpStatus">Not configured</dd></div>
+            </dl>
+            <p id="lastError" class="system-message" role="status"></p>
+          </article>
+
+          <details class="panel settings-panel">
+            <summary>
+              <span>
+                <span class="kicker">Configuration</span>
+                <strong>Advanced settings</strong>
+              </span>
+              <span class="summary-arrow" aria-hidden="true">⌄</span>
+            </summary>
+            <div class="settings-body">
+              <label class="field-label" for="targetUrl">Website URL</label>
+              <input id="targetUrl" type="url">
+
+              <label class="field-label" for="counterLabelInput">Counter label</label>
+              <input id="counterLabelInput" type="text">
+
+              <label class="field-label" for="counterSelector">Exact CSS selector <span>optional</span></label>
+              <input id="counterSelector" type="text" placeholder="Example: .cards-counter">
+
+              <div class="two-column-fields">
+                <div>
+                  <label class="field-label" for="checkIntervalMs">DOM read interval</label>
+                  <select id="checkIntervalMs">
+                    <option value="250">250 ms</option>
+                    <option value="500">500 ms</option>
+                    <option value="1000">1 second</option>
+                    <option value="2000">2 seconds</option>
+                    <option value="5000">5 seconds</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="field-label" for="pageReloadSeconds">Full page refresh</label>
+                  <select id="pageReloadSeconds">
+                    <option value="10">10 seconds</option>
+                    <option value="30">30 seconds</option>
+                    <option value="60">1 minute</option>
+                    <option value="300">5 minutes</option>
+                  </select>
+                </div>
+              </div>
+
+              <label class="field-label" for="emailSubject">Email subject</label>
+              <input id="emailSubject" type="text">
+
+              <label class="field-label" for="emailBody">Email message</label>
+              <textarea id="emailBody" rows="7"></textarea>
+
+              <button id="saveSettings" class="button button-primary full-width" type="button">Save settings</button>
+              <button id="resetAlert" class="button button-danger full-width" type="button">Reset sent-alert lock</button>
+              <p class="settings-note">SMTP usernames and passwords remain in the server’s <code>.env</code> file and are never displayed in this app.</p>
+            </div>
+          </details>
+        </aside>
+      </section>
+    </main>
+  </div>
+
+  <section id="celebration" class="celebration hidden" role="dialog" aria-modal="true" aria-labelledby="celebrationTitle">
+    <div class="celebration-card">
+      <img src="/tcg-machines-logo.jpeg" alt="TCG Machines">
+      <p class="kicker">Milestone complete</p>
+      <h2 id="celebrationTitle">1,000,000,000</h2>
+      <p>TCG Machines has officially PhyzBatched one billion cards.</p>
+      <p id="celebrationDelivery" class="celebration-status">Notification emails have been sent.</p>
+      <button id="closeCelebration" class="button button-primary" type="button">Return to monitor</button>
+    </div>
+  </section>
+
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+</body>
+</html>

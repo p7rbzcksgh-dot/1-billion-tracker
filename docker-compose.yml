@@ -1,0 +1,15 @@
+services:
+  tcg-monitor:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      DB_PATH: /data/tcg-monitor.sqlite
+    volumes:
+      - tcg-monitor-data:/data
+
+volumes:
+  tcg-monitor-data:

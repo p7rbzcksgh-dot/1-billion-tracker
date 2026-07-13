@@ -1,0 +1,42 @@
+TCG MACHINES — 1 BILLION MONITOR
+FLAT GITHUB + DEPLOY PACKAGE
+
+DEFAULT PASSWORD
+#1Billion
+
+EVERY FILE IS AT ROOT LEVEL
+Upload the contents of this ZIP directly to the root of a GitHub repository.
+Do not upload an outer containing folder.
+
+WINDOWS
+1. Install Node.js 22 or newer.
+2. Double-click start-windows.bat.
+3. Edit .env when it is created and add SMTP settings.
+4. Start the app again.
+5. Open http://localhost:3000.
+
+LINUX / MACOS
+1. Install Node.js 22 or newer.
+2. Run: chmod +x start-linux.sh
+3. Run: ./start-linux.sh
+4. Edit .env and add SMTP settings.
+5. Open http://localhost:3000.
+
+MANUAL
+npm install
+npx playwright install chromium
+copy .env.example to .env
+npm start
+
+TEST EVERYTHING
+npm run check
+
+DOCKER
+copy .env.example to .env
+docker compose up -d --build
+open http://localhost:3000
+
+IMPORTANT
+This cannot run on GitHub Pages because it requires Node.js, Chromium,
+SQLite, WebSockets, and SMTP. Deploy the GitHub repository to a Node.js
+or Docker host, or leave it running on a spare office computer.
