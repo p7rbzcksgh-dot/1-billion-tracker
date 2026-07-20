@@ -1,96 +1,35 @@
-# Deployment Guide
+# Railway deployment - v1.9.1 milestone bug fix
 
-## Simplest no-monthly-fee deployment
+## Existing service settings
 
-Run the app on a spare Windows or Linux office computer that can stay powered on.
+- Builder: root-level `Dockerfile`
+- Build Command: leave blank
+- Start Command: leave blank
+- Health check: `/healthz`
+- Persistent volume mount: `/data`
 
-1. Install Node.js 22 or newer.
-2. Put every package file in one folder.
-3. Copy `.env.example` to `.env` and enter the SMTP settings.
-4. Run `npm install`.
-5. Run `npx playwright install chromium`.
-6. Run `npm start`.
-7. Open `http://localhost:3000` on that computer.
+## Required milestone variable
 
-To access the app from other devices on the same network, use the computer's local IP address, for example `http://192.168.1.50:3000`. Allow TCP port 3000 through the computer firewall only on the trusted work network.
-
-Use the operating system's startup tools to run `npm start` after reboot. Docker Compose with `restart: unless-stopped` is also included.
-
-## Docker deployment
-
-1. Copy `.env.example` to `.env`.
-2. Enter SMTP settings and change `COOKIE_SECRET`.
-3. Run:
-
-```bash
-docker compose up -d --build
-```
-
-4. Open `http://localhost:3000`.
-
-The included named volume stores `tcg-monitor.sqlite` outside the replaceable container so recipients and the sent-alert lock survive container rebuilds.
-
-Useful commands:
-
-```bash
-docker compose logs -f
-docker compose restart
-docker compose down
-docker compose up -d --build
-```
-
-## Generic GitHub-to-cloud deployment
-
-This repository includes a root-level `Dockerfile` and `Procfile`. A container or Node.js host should use:
-
-- Build: `npm ci` and `npx playwright install --with-deps chromium`, or build the included Dockerfile
-- Start: `node server.js`
-- Health check: `/health`
-- Port: read from the host-provided `PORT` variable
-- Persistent database path: set `DB_PATH` to a mounted persistent disk
-
-Required secrets:
+Add this in the service's **Variables** tab:
 
 ```text
-APP_PASSWORD
-COOKIE_SECRET
-SMTP_HOST
-SMTP_PORT
-SMTP_SECURE
-SMTP_USER
-SMTP_PASS
-MAIL_FROM
+MILESTONE_REMAINING=10000000,5000000,2000000,500000,100000,50000,10000,5000
 ```
 
-Recommended production values:
+Railway stages variable changes. Review and deploy those changes to apply them.
 
-```env
-NODE_ENV=production
-COOKIE_SECURE=true
-TRUST_PROXY=true
-BROWSER_HEADLESS=true
-```
+## Safe upgrade
 
-## Persistent storage warning
+Keep the existing `/data` volume. The app preserves recipients, settings, and successful email/Teams delivery locks. A milestone already sent will not be resent merely because the app is redeployed.
 
-Recipients, logs, current state, and the one-billion sent lock live in SQLite. Many cloud web services use temporary filesystems. Mount a persistent disk and set, for example:
+A newly added milestone that the live counter has already passed becomes eligible after two verified readings. Check the current counter before adding a past threshold.
 
-```env
-DB_PATH=/data/tcg-monitor.sqlite
-```
+## Verify
 
-Without persistent storage, a restart could erase the email list and sent-alert lock.
+After deployment becomes Active:
 
-## First live check
-
-After deployment:
-
-1. Log in with the configured password.
-2. Confirm the live counter changes to the current TCG website value.
-3. If it does not, enter the exact counter CSS selector in Advanced settings.
-4. Add one recipient.
-5. Send a test email.
-6. Confirm the email arrives.
-7. Add the remaining recipients.
-
-Do not manually reset the one-billion sent lock after the milestone unless you have verified that a repeat announcement is intended.
+1. Open `https://YOUR-RAILWAY-DOMAIN/healthz`.
+2. Confirm `version` is `1.9.1`.
+3. Confirm `countdownRemaining` shows the desired values.
+4. Open the app and log in.
+5. Send one test email and one test Teams post.

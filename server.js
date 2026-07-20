@@ -18,8 +18,16 @@ const { MonitorDatabase } = require('./db');
 const { MonitorStore } = require('./store');
 const { LiveCounterScraper } = require('./scraper');
 const { smtpConfigured, enabledRecipients, sendAnnouncement } = require('./mailer');
+const { teamsPreferences, teamsEnabled, teamsConfigured, sendTeamsPost } = require('./teams');
 const { createSocketHub } = require('./socket');
-const { shouldAttemptMilestone } = require('./alert');
+const {
+  dueMilestonesForChannel,
+  updateMilestoneConfirmations,
+  MILESTONES,
+  resetMilestoneAlerts,
+  publicMilestones,
+  nextUnsentMilestone
+} = require('./alert');
 
 const ROOT = __dirname;
 const config = loadConfig(ROOT);
@@ -31,13 +39,38 @@ const startedAt = Date.now();
 const loginAttempts = new Map();
 let shuttingDown = false;
 let socketHub;
+let milestoneProcessorActive = false;
 
 function publicState() {
   const state = store.get();
+  const milestones = publicMilestones(state);
+  const teams = teamsPreferences();
+  const teamsMilestones = milestones.filter(
+    (milestone) => milestone.final ? teams.notifyFinal : teams.notifyCountdown
+  );
+  const teamsMilestoneTotal = teamsMilestones.length;
+
   return {
     ...state,
+    milestones,
+    nextMilestone: nextUnsentMilestone(state),
+
+    milestoneEmailsSent: milestones.filter((milestone) => milestone.emailSent).length,
+    milestoneEmailsTotal: milestones.length,
+    milestoneEmailSending: milestones.some((milestone) => milestone.emailSending),
+
+    milestoneTeamsSent: teamsMilestones.filter((milestone) => milestone.teamsSent).length,
+    milestoneTeamsTotal: teamsMilestoneTotal,
+    milestoneTeamsSending: milestones.some((milestone) => milestone.teamsSending),
+
     smtpConfigured: smtpConfigured(),
     enabledRecipientCount: enabledRecipients(state).length,
+
+    teamsEnabled: teamsEnabled(),
+    teamsConfigured: teamsConfigured(),
+    teamsNotifyCountdown: teams.notifyCountdown,
+    teamsNotifyFinal: teams.notifyFinal,
+
     serverUptimeSeconds: Math.floor((Date.now() - startedAt) / 1000)
   };
 }
@@ -68,34 +101,132 @@ function recordFailedLogin(ip) {
   loginAttempts.set(ip, record);
 }
 
-async function maybeSendMilestoneAlert() {
-  const state = store.get();
-  if (!shouldAttemptMilestone(state)) return;
+async function processEmailMilestones() {
+  if (!smtpConfigured() || enabledRecipients(store.get()).length === 0) return;
 
-  store.mutate((draft) => {
-    draft.alertSending = true;
-    draft.alertLastAttemptAt = new Date().toISOString();
-    draft.lastError = null;
-  }, { immediate: true });
-  broadcastState();
+  while (true) {
+    const milestone = dueMilestonesForChannel(store.get(), 'email')[0];
+    if (!milestone) break;
+    const attemptAt = new Date().toISOString();
+
+    store.mutate((draft) => {
+      const status = draft.milestoneAlerts[milestone.id];
+      status.emailSending = true;
+      status.emailLastAttemptAt = attemptAt;
+      status.emailLastError = null;
+      draft.lastError = null;
+
+      if (milestone.final) {
+        draft.alertSending = true;
+        draft.alertLastAttemptAt = attemptAt;
+      }
+    }, { immediate: true });
+    broadcastState();
+
+    try {
+      const result = await sendAnnouncement(store.get(), { milestone });
+      const sentAt = new Date().toISOString();
+      store.mutate((draft) => {
+        const status = draft.milestoneAlerts[milestone.id];
+        status.emailSending = false;
+        status.emailSent = true;
+        status.emailSentAt = sentAt;
+        status.emailLastError = null;
+
+        if (milestone.final) {
+          draft.alertSending = false;
+          draft.alertSent = true;
+          draft.alertSentAt = sentAt;
+        }
+      }, { immediate: true });
+
+      log('alert', `${milestone.label} email sent once to ${result.recipientCount} enabled recipients.`);
+      if (milestone.final) {
+        socketHub?.broadcast({ type: 'celebration', payload: { counter: store.get().counter } });
+      }
+      broadcastState();
+    } catch (error) {
+      store.mutate((draft) => {
+        const status = draft.milestoneAlerts[milestone.id];
+        status.emailSending = false;
+        status.emailLastError = error.message;
+        draft.lastError = `${milestone.label} email failed: ${error.message}`;
+
+        if (milestone.final) {
+          draft.alertSending = false;
+        }
+      }, { immediate: true });
+      log('error', `${milestone.label} reached, but email delivery failed: ${error.message}`);
+      broadcastState();
+      break;
+    }
+  }
+}
+
+function teamsMilestoneEnabled(milestone, preferences) {
+  return milestone.final ? preferences.notifyFinal : preferences.notifyCountdown;
+}
+
+async function processTeamsMilestones() {
+  const preferences = teamsPreferences();
+  if (!teamsConfigured()) return;
+
+  while (true) {
+    const milestone = dueMilestonesForChannel(store.get(), 'teams')
+      .find((candidate) => teamsMilestoneEnabled(candidate, preferences));
+    if (!milestone) break;
+    const attemptAt = new Date().toISOString();
+
+    store.mutate((draft) => {
+      const status = draft.milestoneAlerts[milestone.id];
+      status.teamsSending = true;
+      status.teamsLastAttemptAt = attemptAt;
+      status.teamsLastError = null;
+      draft.lastError = null;
+    }, { immediate: true });
+    broadcastState();
+
+    try {
+      await sendTeamsPost(store.get(), { milestone });
+      const sentAt = new Date().toISOString();
+      store.mutate((draft) => {
+        const status = draft.milestoneAlerts[milestone.id];
+        status.teamsSending = false;
+        status.teamsSent = true;
+        status.teamsSentAt = sentAt;
+        status.teamsLastError = null;
+      }, { immediate: true });
+
+      log('teams', `${milestone.label} posted once to Microsoft Teams.`);
+      if (milestone.final) {
+        socketHub?.broadcast({ type: 'celebration', payload: { counter: store.get().counter } });
+      }
+      broadcastState();
+    } catch (error) {
+      store.mutate((draft) => {
+        const status = draft.milestoneAlerts[milestone.id];
+        status.teamsSending = false;
+        status.teamsLastError = error.message;
+        draft.lastError = `${milestone.label} Teams post failed: ${error.message}`;
+      }, { immediate: true });
+      log('error', `${milestone.label} reached, but Microsoft Teams delivery failed: ${error.message}`);
+      broadcastState();
+      break;
+    }
+  }
+}
+
+async function maybeDeliverMilestoneAlerts() {
+  if (milestoneProcessorActive) return;
+  milestoneProcessorActive = true;
 
   try {
-    const result = await sendAnnouncement(store.get());
-    store.mutate((draft) => {
-      draft.alertSending = false;
-      draft.alertSent = true;
-      draft.alertSentAt = new Date().toISOString();
-    }, { immediate: true });
-    log('alert', `One-billion-card email sent to ${result.recipientCount} recipients.`);
-    socketHub?.broadcast({ type: 'celebration', payload: { counter: store.get().counter } });
-    broadcastState();
-  } catch (error) {
-    store.mutate((draft) => {
-      draft.alertSending = false;
-      draft.lastError = `Milestone email failed: ${error.message}`;
-    }, { immediate: true });
-    log('error', `Milestone reached, but email delivery failed: ${error.message}`);
-    broadcastState();
+    // Email and Teams have independent sent locks. A failure in one channel
+    // never blocks or marks the other channel as delivered.
+    await processEmailMilestones();
+    await processTeamsMilestones();
+  } finally {
+    milestoneProcessorActive = false;
   }
 }
 
@@ -116,10 +247,9 @@ const scraper = new LiveCounterScraper({
     const now = new Date();
     const today = now.toISOString().slice(0, 10);
     const current = Number(store.get().counter || 0);
-    const target = Number(store.get().settings.alertTarget || 1000000000);
     const regression = current > 0 && Number(value) < current;
     let counterChanged = false;
-    let firstMilestoneConfirmation = false;
+    let milestoneConfirmationsChanged = false;
 
     store.mutate((draft) => {
       if (draft.checksDate !== today) {
@@ -148,13 +278,8 @@ const scraper = new LiveCounterScraper({
         counterChanged = true;
       }
 
-      if (value >= target && confidence !== 'low' && !draft.alertSent && !draft.alertSending) {
-        firstMilestoneConfirmation = draft.milestoneConfirmations === 0;
-        draft.milestoneConfirmations = Math.min(3, draft.milestoneConfirmations + 1);
-      } else if (value < target) {
-        draft.milestoneConfirmations = 0;
-      }
-    }, { immediate: counterChanged || firstMilestoneConfirmation });
+      milestoneConfirmationsChanged = updateMilestoneConfirmations(draft, value, confidence);
+    }, { immediate: counterChanged || milestoneConfirmationsChanged });
 
     if (regression) {
       if (store.get().checksTotal % 20 === 0) log('warning', store.get().lastError);
@@ -163,7 +288,7 @@ const scraper = new LiveCounterScraper({
     }
 
     broadcastState();
-    await maybeSendMilestoneAlert();
+    await maybeDeliverMilestoneAlerts();
   },
   onError: async (error, trigger) => {
     store.mutate((draft) => {
@@ -303,27 +428,33 @@ app.post('/api/test-email', auth, async (_req, res) => {
   }
 });
 
+app.post('/api/test-teams', auth, async (_req, res) => {
+  try {
+    const result = await sendTeamsPost(store.get(), { test: true });
+    log('teams', 'Microsoft Teams test post delivered successfully.');
+    res.json({ ok: true, status: result.status, simulated: result.simulated });
+  } catch (error) {
+    log('error', `Microsoft Teams test failed: ${error.message}`);
+    res.status(400).json({ error: error.message });
+  }
+});
+
 app.put('/api/settings', auth, (req, res) => {
   const incoming = req.body || {};
-  let targetUrl;
-  try {
-    targetUrl = new URL(String(incoming.targetUrl || store.get().settings.targetUrl));
-    if (!['http:', 'https:'].includes(targetUrl.protocol)) throw new Error('bad protocol');
-  } catch (_) {
-    return res.status(400).json({ error: 'Enter a valid http or https website URL.' });
-  }
 
   store.mutate((draft) => {
-    draft.settings.targetUrl = targetUrl.toString();
+    // The source is intentionally fixed. The app may only read the live
+    // Cards PhyzBatched counter from tcgmachines.com/product.
+    draft.settings.targetUrl = config.targetUrl;
+    draft.settings.counterLabel = config.counterLabel;
     draft.settings.counterSelector = String(incoming.counterSelector || '').trim().slice(0, 300);
-    draft.settings.counterLabel = String(incoming.counterLabel || 'Cards PhyzBatched').trim().slice(0, 100);
-    draft.settings.checkIntervalMs = Math.min(60000, Math.max(250, Number(incoming.checkIntervalMs || 250)));
+    draft.settings.checkIntervalMs = Math.min(60000, Math.max(250, Number(incoming.checkIntervalMs || 500)));
     draft.settings.pageReloadSeconds = Math.min(3600, Math.max(5, Number(incoming.pageReloadSeconds || 30)));
     draft.settings.alertTarget = 1000000000;
     draft.settings.emailSubject = String(incoming.emailSubject || draft.settings.emailSubject).trim().slice(0, 200);
     draft.settings.emailBody = String(incoming.emailBody || draft.settings.emailBody).trim().slice(0, 4000);
   }, { immediate: true });
-  log('settings', 'Monitor settings updated.');
+  log('settings', 'Monitor settings updated. Source remains locked to tcgmachines.com/product.');
   scraper.forceCheck({ reload: true }).catch(() => {});
   broadcastState();
   res.json(publicState());
@@ -331,15 +462,30 @@ app.put('/api/settings', auth, (req, res) => {
 
 app.post('/api/reset-alert', auth, (_req, res) => {
   store.mutate((draft) => {
+    draft.milestoneAlerts = resetMilestoneAlerts();
     draft.alertSent = false;
     draft.alertSentAt = null;
     draft.alertSending = false;
     draft.alertLastAttemptAt = null;
     draft.milestoneConfirmations = 0;
   }, { immediate: true });
-  log('settings', 'One-billion alert lock reset manually.');
+  log('settings', 'All countdown and final email and Microsoft Teams delivery locks were reset manually.');
   broadcastState();
   res.json(publicState());
+});
+
+// Railway calls this during deployment. It deliberately reports server readiness
+// independently of scraper success so a temporary website or browser issue cannot
+// cause the entire web service deployment to fail.
+app.get('/healthz', (_req, res) => {
+  res.status(200).json({
+    ok: true,
+    service: 'tcg-one-billion-monitor',
+    version: '1.9.1',
+    milestoneCount: MILESTONES.length,
+    countdownRemaining: MILESTONES.filter((milestone) => !milestone.final).map((milestone) => milestone.remaining),
+    uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000)
+  });
 });
 
 app.get('/health', (_req, res) => {
@@ -350,7 +496,11 @@ app.get('/health', (_req, res) => {
     counter: state.counter,
     lastSuccessAt: state.lastSuccessAt,
     smtpConfigured: smtpConfigured(),
-    alertSent: state.alertSent
+    teamsConfigured: teamsConfigured(),
+    alertSent: state.alertSent,
+    milestoneEmailsSent: publicMilestones(state).filter((milestone) => milestone.emailSent).length,
+    milestoneTeamsSent: publicMilestones(state).filter((milestone) => milestone.teamsSent).length,
+    databasePath: config.dbPath
   });
 });
 
@@ -367,10 +517,24 @@ socketHub = createSocketHub(server, {
 });
 
 server.listen(config.port, config.host, () => {
-  console.log(`TCG 1 Billion Monitor running on ${config.host}:${config.port}`);
-  scraper.start().catch((error) => log('error', `Scraper startup failed: ${error.message}`));
-  if (store.get().alertSending && !store.get().alertSent) {
-    log('warning', 'The app restarted while a milestone email was marked as sending. The lock remains active to prevent a duplicate send; reset it manually only after checking delivery.');
+  console.log(`TCG 1 Billion Monitor v1.9.1 listening on ${config.host}:${config.port}`);
+  console.log(`Database: ${config.dbPath}`);
+  console.log(`Scraper starts in ${config.scraperStartDelayMs} ms`);
+
+  const scraperTimer = setTimeout(() => {
+    scraper.start().catch((error) => log('error', `Scraper startup failed: ${error.message}`));
+  }, config.scraperStartDelayMs);
+  scraperTimer.unref?.();
+
+  const currentMilestones = publicMilestones(store.get());
+  const interruptedEmail = currentMilestones.filter((milestone) => milestone.emailSending && !milestone.emailSent);
+  const interruptedTeams = currentMilestones.filter((milestone) => milestone.teamsSending && !milestone.teamsSent);
+
+  if (interruptedEmail.length) {
+    log('warning', `The app restarted while ${interruptedEmail.map((milestone) => milestone.label).join(', ')} email delivery was marked as active. Check delivery before resetting locks.`);
+  }
+  if (interruptedTeams.length) {
+    log('warning', `The app restarted while ${interruptedTeams.map((milestone) => milestone.label).join(', ')} Microsoft Teams delivery was marked as active. Check the Teams chat or channel before resetting locks.`);
   }
 });
 

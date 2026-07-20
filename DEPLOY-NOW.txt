@@ -1,0 +1,24 @@
+TCG 1 BILLION MONITOR v1.9.1 - RAILWAY MILESTONE BUG FIX
+
+THIS PACKAGE ADDS SELF-SERVICE RAILWAY MILESTONES.
+
+DEFAULT RAILWAY VARIABLE:
+MILESTONE_REMAINING=10000000,5000000,2000000,500000,100000,50000,10000,5000
+
+INSTALL:
+1. Extract this ZIP.
+2. Upload every extracted file to the ROOT of the existing GitHub repository.
+3. Commit the changes.
+4. Railway deploys the connected branch.
+5. KEEP the existing /data volume.
+6. In Railway -> Service -> Variables, add the variable above.
+7. Review and deploy the staged Railway changes.
+8. Wait for Active.
+9. Visit /healthz and confirm version 1.9.1.
+10. Test email and Teams from the app.
+
+IMPORTANT:
+- Plain digits only in MILESTONE_REMAINING.
+- Do not type 10,000,000 with commas inside the number.
+- The final one-billion alert is always automatic.
+- A new threshold that has already been passed can send after two verified readings.

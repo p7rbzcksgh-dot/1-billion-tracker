@@ -1,141 +1,56 @@
-# TCG Machines — 1 Billion Card Monitor
+# TCG 1 Billion Monitor v1.9.1 - Railway Milestone Bug Fix
 
-A focused TCG Machines app that watches the live **Cards PhyzBatched** total, updates the dashboard in real time, manages an editable email list, and sends one protected announcement when the total reaches **1,000,000,000**.
+This is the full, flat, Railway-ready app package. It keeps the live counter locked to:
 
-## Flat repository package
+`https://tcgmachines.com/product`
 
-This edition is intentionally flat. Every project file, image, test, startup script, and deployment file is located directly at the repository root.
+It sends independent email and Microsoft Teams notifications when the verified counter reaches each configured countdown milestone, followed by the final one-billion alert.
 
-There is no `assets/`, `src/`, `public/`, `lib/`, `server/`, or containing project folder. `index.html`, `tcg-machines-logo.jpeg`, and `phyzbatch-wizard.webp` are all at root level.
+## What this Railway bug fix changes
 
-## What it does
-
-- Password-only login. Default password: `#1Billion`
-- Displays the TCG Machines logo and wizard artwork
-- Keeps one Playwright Chromium page open on `tcgmachines.com`
-- Reads the rendered counter every 250 ms by default
-- Refreshes the source page every 30 seconds by default
-- Tries an exact CSS selector first, then nearby label text, page text, JSON responses, and WebSocket messages
-- Pushes counter changes to open dashboards through WebSockets
-- Stores recipients, state, logs, and the sent-alert lock in SQLite
-- Adds, removes, enables, and disables email recipients
-- Sends a test email to all enabled recipients
-- Requires two trustworthy readings at or above one billion before the milestone email is attempted
-- Prevents the milestone email from being sent twice
-- Restarts the browser automatically after page, browser, or connection failures
-- Includes Docker, Docker Compose, Procfile, verification, automated tests, and a smoke test
-
-## Important hosting note
-
-This is a Node.js backend application, not a static website. GitHub Pages and ordinary static-site deployment cannot run the scraper, SQLite database, WebSocket server, or email sender.
-
-Upload the files to a GitHub repository, then deploy the repository to a Node.js or Docker host. A spare office computer is the easiest no-monthly-fee option. Docker deployment instructions are in `DEPLOYMENT.md`.
-
-## Fast local setup
-
-1. Install Node.js 22 or newer.
-2. Extract this package. Do not place the files inside another project folder when uploading them to GitHub.
-3. Copy `.env.example` to `.env`.
-4. Add the SMTP mailbox information to `.env`.
-5. Run:
-
-```bash
-npm install
-npx playwright install chromium
-npm start
-```
-
-6. Open `http://localhost:3000`.
-7. Enter `#1Billion`.
-8. Add recipients and press **Send test email**.
-
-Windows users can double-click `start-windows.bat`. Linux and macOS users can run `./start-linux.sh`.
-
-## Uploading to GitHub
-
-Create an empty GitHub repository and upload the **contents** of this package directly. After upload, the top level of the repository should show files such as:
+Earlier milestone changes required editing `milestones.js` and uploading another code package. Version 1.9.1 adds one Railway variable so future countdown changes can be made directly in Railway without editing JavaScript:
 
 ```text
-index.html
-server.js
-styles.css
-client.js
-tcg-machines-logo.jpeg
-phyzbatch-wizard.webp
-package.json
-Dockerfile
-README.md
+MILESTONE_REMAINING=10000000,5000000,2000000,500000,100000,50000,10000,5000
 ```
 
-There should not be another `TCG-1-Billion-Monitor` folder above those files.
+Use plain digits only. Do not put thousands separators inside the numbers.
 
-## Email setup
+The final `1,000,000,000` notification is always included automatically and cannot be removed accidentally.
 
-The included `.env.example` contains a Microsoft 365 SMTP example:
+## Default notification schedule
 
-```env
-SMTP_HOST=smtp.office365.com
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=notifications@tcgmachines.com
-SMTP_PASS=replace-with-mailbox-password-or-app-password
-MAIL_FROM=TCG Machines Monitor <notifications@tcgmachines.com>
-```
+- 10,000,000 remaining
+- 5,000,000 remaining
+- 2,000,000 remaining
+- 500,000 remaining
+- 100,000 remaining
+- 50,000 remaining
+- 10,000 remaining
+- 5,000 remaining
+- 1,000,000,000 reached
 
-The app places recipients in BCC so the entire email list is not exposed to everyone receiving the announcement.
+Every milestone requires two verified readings. Email and Teams have separate permanent delivery locks.
 
-## Counter detection
+## Upgrade the existing Railway service
 
-The app first uses `COUNTER_SELECTOR` when one is configured. Without a selector it searches the rendered page for the text `Cards PhyzBatched` and reads a nearby number. It also watches relevant network responses and WebSocket messages.
+1. Extract the ZIP.
+2. Upload the extracted root-level files to the existing GitHub repository.
+3. Commit the changes.
+4. Railway automatically deploys the connected branch.
+5. Keep the existing `/data` volume attached.
+6. Add or update the `MILESTONE_REMAINING` variable in Railway.
+7. Review and deploy Railway's staged variable changes.
+8. Wait for the deployment to become Active.
+9. Open `/healthz` and confirm version `1.9.1`.
+10. Open the app and use **Send test email** and **Send test post**.
 
-If the monitor remains in **Reconnecting** status, open the TCG website in a browser, inspect the visible counter, copy its CSS selector, and save it in **Advanced settings**.
+## Build behavior
 
-## Environment variables
+Railway performs no `npm ci` or `npm install`. Production dependencies are already packaged in `production-dependencies.tgz` and verified during the Docker build.
 
-| Variable | Default | Purpose |
-|---|---:|---|
-| `APP_PASSWORD` | `#1Billion` | Shared app password |
-| `COOKIE_SECRET` | derived | Signs login cookies; set a random value for public deployment |
-| `COOKIE_SECURE` | production-dependent | Use secure cookies over HTTPS |
-| `TRUST_PROXY` | production-dependent | Trust the first reverse proxy |
-| `HOST` | `0.0.0.0` | Server bind address |
-| `PORT` | `3000` | Web server port |
-| `DB_PATH` | `./tcg-monitor.sqlite` | SQLite database location |
-| `TARGET_URL` | TCG website | Counter source page |
-| `COUNTER_LABEL` | `Cards PhyzBatched` | Visible label near the number |
-| `COUNTER_SELECTOR` | blank | Optional exact CSS selector |
-| `READ_INTERVAL_MS` | `250` | Loaded-page DOM read interval |
-| `FULL_REFRESH_SECONDS` | `30` | Full source-page refresh interval |
-| `BROWSER_HEADLESS` | `true` | Runs Chromium without a window |
-| `CHROMIUM_EXECUTABLE_PATH` | blank | Optional custom Chromium path |
-| `DISABLE_SCRAPER` | `false` | Disables scraping for testing |
-| `SMTP_HOST` | blank | SMTP server |
-| `SMTP_PORT` | `587` | SMTP port |
-| `SMTP_SECURE` | `false` | TLS mode |
-| `SMTP_USER` | blank | SMTP username |
-| `SMTP_PASS` | blank | SMTP password or app password |
-| `MAIL_FROM` | SMTP user | Sender name/address |
+## Login
 
-## Validation
+`#1Billion`
 
-Run the complete local validation suite:
-
-```bash
-npm run check
-```
-
-This performs:
-
-1. Flat-package and syntax verification
-2. Unit and integration tests
-3. A full server smoke test covering authentication, protected APIs, recipient storage, toggles, generated email, root-level images, and root UI delivery
-
-## Database and one-time alert protection
-
-The local database is created as `tcg-monitor.sqlite` at the repository root and is ignored by Git. For cloud deployment, set `DB_PATH` to a persistent disk location. Without persistent storage, a cloud restart can erase the recipient list and one-billion sent lock.
-
-When the milestone is verified, the app records the alert as sent before allowing another send. Reset the lock only after confirming that a repeat email is actually required.
-
-## License
-
-MIT. TCG Machines branding and supplied artwork remain the property of their respective owner.
+See `RAILWAY-BUGFIX-GUIDE.md` or the separate PDF guide for beginner-friendly instructions.
